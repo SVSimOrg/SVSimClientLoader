@@ -10,7 +10,7 @@ Probably everything else
 
 * Download BepinEx [here](https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x86_5.4.23.5.zip)
 * Follow the installation instructions (should be just extracting it to your Shadowverse game folder)
-* Download the latest version of the client loader from releases
+* Download the latest version of the client loader from releases [here](https://github.com/SVSimOrg/SVSimClientLoader/releases/tag/prerelease)
 * Extract the contained BepinEx folder into your shadowverse folder (overwriting the existing BepinEx folder)
   * This will set up the client loader with a default configuration to dump your user data
 * Start the game
