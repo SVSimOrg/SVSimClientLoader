@@ -44,6 +44,8 @@ I don't want to spend my free time reviewing pull requests right now, so the bes
 * Whenever you feel like it, go ahead and zip up your folder or folders and send them over for use in developing the emulator. Live data captures always help with figuring out how things work, or with scraping server-only data like achievements, that have no client master list.
 * Whenever you're done or want to stop logging, set the capture values back to false
 
+As mentioned, you will need to zip up the svsim-captures folder and send it over with whatever captures you want to share. There is no automatic telemetry.
+
 ### Is there any sensitive data in the captures?
 Possibly. The captures capture all API and websocket traffic I could think to hook into. While there isn't anything like your steam credentials, your steam id does get sent across, which can identify your steam account. If you chat with friends in SV or join lobbies, thats all api/websocket traffic getting captures. Your friends names get captured when you view friends, your date of birth I think comes back on the index load, etc.
 
