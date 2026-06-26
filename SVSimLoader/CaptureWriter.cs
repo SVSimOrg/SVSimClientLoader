@@ -409,19 +409,33 @@ internal static class CaptureWriter
         else if (val.IsDouble) dest[destKey] = (double)val;
     }
 
+    /// <summary>
+    /// Read a JsonData scalar as a long, accepting IsInt / IsLong / IsString (parsed).
+    /// The wire ships several numeric fields (card_id, item_id, their `number`, even some
+    /// cosmetic ids on some accounts) as JSON strings; pre-2026-06-26 the extractors only
+    /// accepted IsInt/IsLong and silently dropped string-encoded rows, producing dumps
+    /// with no `owned_cards` / `items`.
+    /// </summary>
+    private static bool TryReadLong(JsonData v, out long result)
+    {
+        result = 0;
+        if (v == null) return false;
+        if (v.IsInt) { result = (int)v; return true; }
+        if (v.IsLong) { result = (long)v; return true; }
+        if (v.IsString) return long.TryParse((string)v, out result);
+        return false;
+    }
+
     private static void ExtractIdArray(JsonData data, string listKey, string idField,
         Dictionary<string, object> dump, string destKey)
     {
         var list = SafeGet(data, listKey);
         if (list == null || !list.IsArray) return;
-        var ids = new List<int>();
+        var ids = new List<long>();
         for (int i = 0; i < list.Count; i++)
         {
             var entry = list[i];
-            var idVal = SafeGet(entry, idField);
-            if (idVal == null) continue;
-            if (idVal.IsInt) ids.Add((int)idVal);
-            else if (idVal.IsLong) ids.Add((int)(long)idVal);
+            if (TryReadLong(SafeGet(entry, idField), out long id)) ids.Add(id);
         }
         if (ids.Count > 0) dump[destKey] = ids;
     }
@@ -447,7 +461,7 @@ internal static class CaptureWriter
     {
         var list = SafeGet(data, "user_leader_skin_list");
         if (list == null || !list.IsArray) return;
-        var ids = new List<int>();
+        var ids = new List<long>();
         for (int i = 0; i < list.Count; i++)
         {
             var entry = list[i];
@@ -455,12 +469,10 @@ internal static class CaptureWriter
             bool owned = isOwned != null && (
                 (isOwned.IsBoolean && (bool)isOwned) ||
                 (isOwned.IsInt && (int)isOwned != 0) ||
-                (isOwned.IsLong && (long)isOwned != 0));
+                (isOwned.IsLong && (long)isOwned != 0) ||
+                (isOwned.IsString && (string)isOwned != "0" && !string.IsNullOrEmpty((string)isOwned)));
             if (!owned) continue;
-            var idVal = SafeGet(entry, "leader_skin_id");
-            if (idVal == null) continue;
-            if (idVal.IsInt) ids.Add((int)idVal);
-            else if (idVal.IsLong) ids.Add((int)(long)idVal);
+            if (TryReadLong(SafeGet(entry, "leader_skin_id"), out long id)) ids.Add(id);
         }
         if (ids.Count > 0) dump["owned_leader_skin_ids"] = ids;
     }
@@ -494,21 +506,11 @@ internal static class CaptureWriter
         for (int i = 0; i < list.Count; i++)
         {
             var entry = list[i];
-            var idVal = SafeGet(entry, "card_id");
-            if (idVal == null) continue;
-            long cardId;
-            if (idVal.IsInt) cardId = (int)idVal;
-            else if (idVal.IsLong) cardId = (long)idVal;
-            else continue;
+            if (!TryReadLong(SafeGet(entry, "card_id"), out long cardId)) continue;
 
             var c = new Dictionary<string, object> { { "card_id", cardId } };
 
-            var num = SafeGet(entry, "number");
-            if (num != null)
-            {
-                if (num.IsInt) c["count"] = (int)num;
-                else if (num.IsLong) c["count"] = (int)(long)num;
-            }
+            if (TryReadLong(SafeGet(entry, "number"), out long num)) c["count"] = (int)num;
 
             var prot = SafeGet(entry, "is_protected");
             if (prot != null)
@@ -516,7 +518,8 @@ internal static class CaptureWriter
                 c["is_protected"] =
                     (prot.IsBoolean && (bool)prot) ||
                     (prot.IsInt && (int)prot != 0) ||
-                    (prot.IsLong && (long)prot != 0);
+                    (prot.IsLong && (long)prot != 0) ||
+                    (prot.IsString && (string)prot != "0" && !string.IsNullOrEmpty((string)prot));
             }
             cards.Add(c);
         }
@@ -531,18 +534,9 @@ internal static class CaptureWriter
         for (int i = 0; i < list.Count; i++)
         {
             var entry = list[i];
-            var idVal = SafeGet(entry, "item_id");
-            if (idVal == null) continue;
-            var item = new Dictionary<string, object>();
-            if (idVal.IsInt) item["item_id"] = (int)idVal;
-            else if (idVal.IsLong) item["item_id"] = (int)(long)idVal;
-            else continue;
-            var num = SafeGet(entry, "number");
-            if (num != null)
-            {
-                if (num.IsInt) item["count"] = (int)num;
-                else if (num.IsLong) item["count"] = (int)(long)num;
-            }
+            if (!TryReadLong(SafeGet(entry, "item_id"), out long itemId)) continue;
+            var item = new Dictionary<string, object> { { "item_id", itemId } };
+            if (TryReadLong(SafeGet(entry, "number"), out long num)) item["count"] = (int)num;
             items.Add(item);
         }
         if (items.Count > 0) dump["items"] = items;
