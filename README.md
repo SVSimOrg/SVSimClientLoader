@@ -6,7 +6,7 @@ Currency, cosmetics, cards, class xp/levels, decks, missions, achievements, stor
 ## What will be lost
 Probably everything else
 
-## Instructions
+## Usage Instructions
 
 * Download BepinEx [here](https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x86_5.4.23.5.zip)
 * Follow the installation instructions (should be just extracting it to your SV game folder)
@@ -53,3 +53,6 @@ If this is concerning, I highly recommend not turning this on. If you have a tec
 
 ### Why isn't this on by default?
 There is no log rotation. If you enable captures, you'll just start having log files pile up. So I'd rather people go out of their way to enable it and know how to disable it.
+
+## Compiling
+Should compile with any C# IDE, I use Rider. You will need to grab the lib dependencies from {SV Folder}/{SV} Data/Managed, and add them into the lib folder. Should be Assembly-CSharp.dll and UnityEngine.CoreModule.dll.
