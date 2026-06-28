@@ -181,6 +181,17 @@ internal static class CaptureWriter
                 Copy(userInfo, "country_code", dump, "country_code");
                 Copy(userInfo, "selected_emblem_id", dump, "selected_emblem_id");
                 Copy(userInfo, "selected_degree_id", dump, "selected_degree_id");
+                Copy(userInfo, "birth", dump, "birth");
+                Copy(userInfo, "max_friend", dump, "max_friend");
+
+                // mission_change_time, mission_receive_type, and is_received_two_pick_mission live on
+                // /load/index user_info — not /mission/info as the original WriteMissionInfoData TODO
+                // assumed. WriteMissionInfoData later merges into this same mission_meta dict.
+                var missionMeta = new Dictionary<string, object>();
+                Copy(userInfo, "mission_change_time", missionMeta, "mission_change_time");
+                Copy(userInfo, "mission_receive_type", missionMeta, "mission_receive_type");
+                Copy(userInfo, "is_received_two_pick_mission", missionMeta, "is_received_two_pick_mission");
+                if (missionMeta.Count > 0) dump["mission_meta"] = missionMeta;
             }
 
             var tutorial = SafeGet(loadIndexData, "user_tutorial");
@@ -204,6 +215,13 @@ internal static class CaptureWriter
             ExtractClasses(loadIndexData, dump);
             ExtractOwnedCards(loadIndexData, dump);
             ExtractItems(loadIndexData, dump);
+            ExtractItemExpireDate(loadIndexData, dump);
+            ExtractUserRank(loadIndexData, dump);
+            ExtractUserRankMatchList(loadIndexData, dump);
+            ExtractDefaultSetting(loadIndexData, dump);
+            ExtractUserConfig(loadIndexData, dump);
+            Copy(loadIndexData, "spot_point", dump, "spot_point");
+            Copy(loadIndexData, "is_beginner_mission", dump, "is_beginner_mission");
             ExtractDecks(loadIndexData, dump);
             // NOTE: user_mission_list, user_achievement_list, and mission_meta are NOT present on
             // /load/index. They are served by /mission/info and merged by WriteMissionInfoData
@@ -276,12 +294,16 @@ internal static class CaptureWriter
                 var achievements = ExtractAchievements(missionInfoData);
                 if (achievements.Count > 0) dump["achievements"] = achievements;
 
-                // mission_meta: emit mission_receive_type (confirmed present on /mission/info as a
-                // string-encoded int, e.g. "0"). has_received_pick_two_mission and mission_change_time
-                // are absent from captures — defer until their wire location is confirmed.
-                // TODO: add has_received_pick_two_mission and mission_change_time to mission_meta
-                //       once their wire location (endpoint + field name) is confirmed.
-                var missionMeta = new Dictionary<string, object>();
+                // mission_meta: merge into whatever WriteUserDataFromLoadIndex already produced from
+                // user_info (mission_change_time, mission_receive_type, is_received_two_pick_mission
+                // all live on /load/index user_info). mission_receive_type is also re-emitted by
+                // /mission/info top-level, so we overwrite it from here if the merge happens later —
+                // the values are identical in practice.
+                Dictionary<string, object> missionMeta;
+                if (dump.TryGetValue("mission_meta", out var existingMeta) && existingMeta is Dictionary<string, object> existingDict)
+                    missionMeta = existingDict;
+                else
+                    missionMeta = new Dictionary<string, object>();
                 CopyIntOrString(missionInfoData, "mission_receive_type", missionMeta);
                 if (missionMeta.Count > 0) dump["mission_meta"] = missionMeta;
 
@@ -429,15 +451,32 @@ internal static class CaptureWriter
     private static void ExtractIdArray(JsonData data, string listKey, string idField,
         Dictionary<string, object> dump, string destKey)
     {
-        var list = SafeGet(data, listKey);
-        if (list == null || !list.IsArray) return;
+        var container = SafeGet(data, listKey);
+        if (container == null) return;
         var ids = new List<long>();
-        for (int i = 0; i < list.Count; i++)
+        foreach (var entry in EnumerateEntries(container))
         {
-            var entry = list[i];
             if (TryReadLong(SafeGet(entry, idField), out long id)) ids.Add(id);
         }
         if (ids.Count > 0) dump[destKey] = ids;
+    }
+
+    /// <summary>
+    /// /load/index serialises several "list" payloads as msgpack maps keyed by id (which JSON
+    /// decodes as `{ "id_str": {...} }` dicts), not arrays. user_sleeve_list, user_leader_skin_list,
+    /// user_rank are all dict-shaped on prod. Iterate either form transparently.
+    /// </summary>
+    private static IEnumerable<JsonData> EnumerateEntries(JsonData container)
+    {
+        if (container == null) yield break;
+        if (container.IsArray)
+        {
+            for (int i = 0; i < container.Count; i++) yield return container[i];
+        }
+        else if (container.IsObject)
+        {
+            foreach (string k in container.Keys) yield return container[k];
+        }
     }
 
     private static void ExtractMyPageList(JsonData data, Dictionary<string, object> dump)
@@ -459,12 +498,11 @@ internal static class CaptureWriter
 
     private static void ExtractOwnedLeaderSkins(JsonData data, Dictionary<string, object> dump)
     {
-        var list = SafeGet(data, "user_leader_skin_list");
-        if (list == null || !list.IsArray) return;
+        var container = SafeGet(data, "user_leader_skin_list");
+        if (container == null) return;
         var ids = new List<long>();
-        for (int i = 0; i < list.Count; i++)
+        foreach (var entry in EnumerateEntries(container))
         {
-            var entry = list[i];
             var isOwned = SafeGet(entry, "is_owned");
             bool owned = isOwned != null && (
                 (isOwned.IsBoolean && (bool)isOwned) ||
@@ -493,6 +531,20 @@ internal static class CaptureWriter
             else continue;
             Copy(entry, "level", c, "level");
             Copy(entry, "exp", c, "exp");
+            Copy(entry, "is_available", c, "is_available");
+            Copy(entry, "leader_skin_id", c, "leader_skin_id");
+            Copy(entry, "is_random_leader_skin", c, "is_random_leader_skin");
+            Copy(entry, "default_leader_skin_id", c, "default_leader_skin_id");
+            var skinList = SafeGet(entry, "leader_skin_id_list");
+            if (skinList != null && skinList.IsArray)
+            {
+                var ids = new List<long>();
+                for (int j = 0; j < skinList.Count; j++)
+                {
+                    if (TryReadLong(skinList[j], out long id)) ids.Add(id);
+                }
+                if (ids.Count > 0) c["leader_skin_id_list"] = ids;
+            }
             classes.Add(c);
         }
         if (classes.Count > 0) dump["classes"] = classes;
@@ -540,6 +592,88 @@ internal static class CaptureWriter
             items.Add(item);
         }
         if (items.Count > 0) dump["items"] = items;
+    }
+
+    private static void ExtractItemExpireDate(JsonData data, Dictionary<string, object> dump)
+    {
+        var list = SafeGet(data, "item_expire_date");
+        if (list == null || !list.IsArray) return;
+        var rows = new List<Dictionary<string, object>>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var entry = list[i];
+            var row = new Dictionary<string, object>();
+            if (TryReadLong(SafeGet(entry, "item_id"), out long id)) row["item_id"] = id;
+            Copy(entry, "start_date", row, "start_date");
+            Copy(entry, "expire_date", row, "expire_date");
+            if (row.Count > 0) rows.Add(row);
+        }
+        if (rows.Count > 0) dump["item_expire_date"] = rows;
+    }
+
+    private static void ExtractUserRank(JsonData data, Dictionary<string, object> dump)
+    {
+        var container = SafeGet(data, "user_rank");
+        if (container == null) return;
+        var rows = new List<Dictionary<string, object>>();
+        foreach (var entry in EnumerateEntries(container))
+        {
+            if (entry == null || !entry.IsObject) continue;
+            var row = new Dictionary<string, object>();
+            Copy(entry, "deck_format", row, "deck_format");
+            Copy(entry, "rank", row, "rank");
+            Copy(entry, "battle_point", row, "battle_point");
+            Copy(entry, "successive_win_number", row, "successive_win_number");
+            Copy(entry, "consecutive_losses_number", row, "consecutive_losses_number");
+            Copy(entry, "is_promotion", row, "is_promotion");
+            Copy(entry, "is_master_rank", row, "is_master_rank");
+            Copy(entry, "is_grand_master_rank", row, "is_grand_master_rank");
+            Copy(entry, "master_point", row, "master_point");
+            Copy(entry, "period_grand_master_point", row, "period_grand_master_point");
+            Copy(entry, "target_grand_master_point", row, "target_grand_master_point");
+            Copy(entry, "current_grand_master_point", row, "current_grand_master_point");
+            if (row.Count > 0) rows.Add(row);
+        }
+        if (rows.Count > 0) dump["user_rank"] = rows;
+    }
+
+    private static void ExtractUserRankMatchList(JsonData data, Dictionary<string, object> dump)
+    {
+        var list = SafeGet(data, "user_rank_match_list");
+        if (list == null || !list.IsArray) return;
+        var rows = new List<Dictionary<string, object>>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var entry = list[i];
+            if (entry == null || !entry.IsObject) continue;
+            var row = new Dictionary<string, object>();
+            Copy(entry, "class_id", row, "class_id");
+            Copy(entry, "match_count", row, "match_count");
+            Copy(entry, "win", row, "win");
+            Copy(entry, "lose", row, "lose");
+            if (row.Count > 0) rows.Add(row);
+        }
+        if (rows.Count > 0) dump["user_rank_match_list"] = rows;
+    }
+
+    private static void ExtractDefaultSetting(JsonData data, Dictionary<string, object> dump)
+    {
+        var ds = SafeGet(data, "default_setting");
+        if (ds == null || !ds.IsObject) return;
+        var row = new Dictionary<string, object>();
+        Copy(ds, "default_emblem_id", row, "default_emblem_id");
+        Copy(ds, "default_degree_id", row, "default_degree_id");
+        Copy(ds, "default_mypage_id", row, "default_mypage_id");
+        if (row.Count > 0) dump["default_setting"] = row;
+    }
+
+    private static void ExtractUserConfig(JsonData data, Dictionary<string, object> dump)
+    {
+        var uc = SafeGet(data, "user_config");
+        if (uc == null || !uc.IsObject) return;
+        var row = new Dictionary<string, object>();
+        foreach (string k in uc.Keys) Copy(uc, k, row, k);
+        if (row.Count > 0) dump["user_config"] = row;
     }
 
     // /load/index splits decks into one container per format; the format is the KEY, not a
