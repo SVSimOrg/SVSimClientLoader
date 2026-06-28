@@ -145,17 +145,11 @@ internal static class CaptureWriter
 
     /// <summary>
     /// Extract essential viewer fields from a /load/index response and write them as a clean
-    /// JSON file matching the /admin/import_viewer request shape. Skipped silently when no
-    /// steam_id has been seen yet (need at least one prior request to know the link).
+    /// JSON file matching the /admin/import_viewer request shape. Emits steam_id=0 on non-Steam
+    /// builds (e.g. DMM) — the import endpoint's identity key is fixed up at import time.
     /// </summary>
     public static void WriteUserDataFromLoadIndex(JsonData loadIndexData)
     {
-        if (_lastSeenSteamId == 0)
-        {
-            Plugin.Log?.LogWarning("DumpUserData: no steam_id seen yet, skipping user-data dump.");
-            return;
-        }
-
         try
         {
             // SetResponseData hands us the FULL response envelope { data_headers, data }; the
@@ -250,7 +244,6 @@ internal static class CaptureWriter
     /// </summary>
     public static void WriteMissionInfoData(JsonData missionInfoData)
     {
-        if (_lastSeenSteamId == 0) return;
         try
         {
             // Unwrap envelope { data_headers, data } if present.
